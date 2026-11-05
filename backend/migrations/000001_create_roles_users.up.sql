@@ -1,0 +1,18 @@
+
+CREATE TABLE roles (
+    id SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(20) NOT NULL UNIQUE
+);
+
+INSERT INTO roles (name)
+VALUES ('admin'), ('owner'), ('visitor');
+
+CREATE TABLE users (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_id SMALLINT NOT NULL REFERENCES roles(id),
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

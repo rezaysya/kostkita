@@ -1,0 +1,18 @@
+
+version: "2"
+
+sql:
+  - engine: "postgresql"
+    schema:
+      - "migrations/000001_create_roles_users.up.sql"
+      - "migrations/000002_create_kosts.up.sql"
+      - "migrations/000003_create_kost_relations.up.sql"
+    queries: "sql/queries"
+
+    gen:
+      go:
+        package: "db"
+        out: "internal/database/sqlc"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
