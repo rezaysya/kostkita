@@ -50,6 +50,11 @@ type kostImage struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type kostFacility struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
 func ok(w http.ResponseWriter, status int, data any) {
 	write(w, status, envelope{
 		"status": "success",
@@ -162,10 +167,36 @@ func (a *API) auth(next http.Handler) http.Handler {
 			return
 		}
 
+		// Validasi akun dan role langsung dari database.
+		var role string
+
+		err = a.DB.QueryRow(
+			r.Context(),
+			`SELECT ro.name
+			 FROM users u
+			 JOIN roles ro ON ro.id = u.role_id
+			 WHERE u.id = $1`,
+			userID,
+		).Scan(&role)
+
+		if errors.Is(err, pgx.ErrNoRows) {
+			fail(w, http.StatusUnauthorized, "USER_NOT_FOUND", "User account no longer exists")
+			return
+		}
+
+		if err != nil {
+			fail(w, http.StatusInternalServerError, "DATABASE_ERROR", "Could not verify user account")
+			return
+		}
+
+		// Gunakan role terbaru dari database, bukan role dari JWT.
 		ctx := context.WithValue(
 			r.Context(),
 			userKey,
-			identity{ID: userID, Role: tokenClaims.Role},
+			identity{
+				ID:   userID,
+				Role: role,
+			},
 		)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -569,6 +600,46 @@ func (a *API) getKostImages(ctx context.Context, kostID int64) ([]kostImage, err
 	return images, nil
 }
 
+func (a *API) getKostFacilities(
+	ctx context.Context,
+	kostID int64,
+) ([]kostFacility, error) {
+	rows, err := a.DB.Query(
+		ctx,
+		`SELECT f.id, f.name
+		 FROM kost_facilities kf
+		 JOIN facilities f ON f.id = kf.facility_id
+		 WHERE kf.kost_id = $1
+		 ORDER BY f.id ASC`,
+		kostID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	facilities := []kostFacility{}
+
+	for rows.Next() {
+		var facility kostFacility
+
+		if err := rows.Scan(
+			&facility.ID,
+			&facility.Name,
+		); err != nil {
+			return nil, err
+		}
+
+		facilities = append(facilities, facility)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return facilities, nil
+}
+
 func (a *API) listKosts(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
@@ -722,7 +793,16 @@ func (a *API) getPublicKost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilities, err := a.getKostFacilities(r.Context(), id)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "DATABASE_ERROR",
+			"Could not retrieve kost facilities")
+		return
+	}
+
 	kost["images"] = images
+	kost["facilities"] = facilities
+
 	ok(w, http.StatusOK, kost)
 }
 
@@ -903,7 +983,16 @@ func (a *API) ownerGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilities, err := a.getKostFacilities(r.Context(), id)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "DATABASE_ERROR",
+			"Could not retrieve kost facilities")
+		return
+	}
+
 	kost["images"] = images
+	kost["facilities"] = facilities
+
 	ok(w, http.StatusOK, kost)
 }
 
@@ -1524,6 +1613,19 @@ func (a *API) adminSetRole(w http.ResponseWriter, r *http.Request) {
 	id, err := idParam(r)
 	if err != nil {
 		fail(w, http.StatusBadRequest, "INVALID_ID", "Invalid user ID")
+		return
+	}
+
+	// Cegah admin mengubah role akunnya sendiri.
+	admin := current(r)
+
+	if id == admin.ID {
+		fail(
+			w,
+			http.StatusForbidden,
+			"SELF_ROLE_CHANGE_FORBIDDEN",
+			"You cannot change your own role",
+		)
 		return
 	}
 
