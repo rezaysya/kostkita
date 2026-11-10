@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { refreshUser } = useAuth();
 
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -43,12 +45,14 @@ export default function LoginPage() {
 
       const user = result.data.user;
 
-      setMessage(`Login berhasil. Selamat datang, ${user.name}!`);
+setMessage(`Login berhasil. Selamat datang, ${user.name}!`);
 
-      // Sementara semua role diarahkan ke halaman utama.
-      // Nanti kita buat redirect khusus admin, owner, dan visitor.
-      router.push("/");
-      router.refresh();
+// Update authentication state
+await refreshUser();
+
+// Redirect setelah state user diperbarui
+router.push("/");
+router.refresh();
     } catch (err) {
       setError(
         err instanceof Error

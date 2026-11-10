@@ -4,13 +4,27 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Wifi, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Wifi,
+  CheckCircle2,
+} from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 
 type Facility = {
   id: number;
   name: string;
   created_at?: string;
+};
+
+type ApiResponse<T> = {
+  status: string;
+  data: T;
+  error?: {
+    code?: string;
+    message?: string;
+  };
 };
 
 export default function ManageFacilitiesPage() {
@@ -21,64 +35,133 @@ export default function ManageFacilitiesPage() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [kostName, setKostName] = useState("");
+
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    if (loading) return;
+    console.log("[ManageFacilities] useEffect berjalan");
+    console.log("[ManageFacilities] Auth:", {
+      loading,
+      user,
+      kostId: id,
+    });
 
-    if (!user || user.role !== "owner") {
-      router.replace("/login");
+    if (loading) {
+      console.log("[ManageFacilities] Menunggu AuthProvider...");
       return;
     }
+
+    if (!user || user.role !== "owner") {
+      console.log("[ManageFacilities] User bukan owner, redirect login");
+      router.replace("/login");
+      setLoadingData(false);
+      return;
+    }
+
+    let cancelled = false;
 
     async function loadData() {
       try {
         setLoadingData(true);
         setError("");
 
+        console.log("[ManageFacilities] Mulai mengambil data...");
+
         const [facilityResponse, kostResponse] = await Promise.all([
-          fetch("/api/facilities", { cache: "no-store" }),
-          fetch(`/api/owner/kosts/${id}`, { cache: "no-store" }),
+          fetch("/api/facilities", {
+            cache: "no-store",
+          }),
+          fetch(`/api/owner/kosts/${id}`, {
+            cache: "no-store",
+          }),
         ]);
 
-        const facilityResult = await facilityResponse.json();
-        const kostResult = await kostResponse.json();
+        console.log("[ManageFacilities] Facility HTTP:", facilityResponse.status);
+        console.log("[ManageFacilities] Kost HTTP:", kostResponse.status);
+
+        const facilityResult: ApiResponse<Facility[]> =
+          await facilityResponse.json();
+
+        const kostResult: ApiResponse<any> =
+          await kostResponse.json();
+
+        console.log("[ManageFacilities] Facility response:", facilityResult);
+        console.log("[ManageFacilities] Kost response:", kostResult);
 
         if (!facilityResponse.ok || facilityResult.status !== "success") {
-          throw new Error("Gagal mengambil daftar fasilitas.");
+          throw new Error(
+            facilityResult.error?.message ||
+              "Gagal mengambil daftar fasilitas."
+          );
         }
 
         if (!kostResponse.ok || kostResult.status !== "success") {
-          throw new Error("Gagal mengambil data kost.");
+          throw new Error(
+            kostResult.error?.message ||
+              "Gagal mengambil data kost."
+          );
         }
 
-        const facilityList = facilityResult.data ?? [];
+        // Pastikan data fasilitas berbentuk array.
+        const facilityList: Facility[] = Array.isArray(facilityResult.data)
+          ? facilityResult.data
+          : [];
+
         const kost = kostResult.data;
+
+        if (!kost) {
+          throw new Error("Data kost tidak ditemukan.");
+        }
+
+        // Ambil ID fasilitas yang sudah dimiliki kost.
+        const existingFacilities = Array.isArray(kost.facilities)
+          ? kost.facilities
+          : [];
+
+        const existingIds = existingFacilities
+          .map((facility: Facility | number) =>
+            typeof facility === "number"
+              ? facility
+              : Number(facility.id)
+          )
+          .filter((facilityId: number) => Number.isFinite(facilityId));
+
+        if (cancelled) return;
 
         setFacilities(facilityList);
         setKostName(kost.name ?? "");
+        setSelectedIds(existingIds);
 
-        // Ambil ID fasilitas yang sudah dimiliki kost.
-        const existingFacilities = kost.facilities ?? [];
-
-        setSelectedIds(
-          existingFacilities.map((facility: Facility | number) =>
-            typeof facility === "number" ? facility : facility.id
-          )
-        );
+        console.log("[ManageFacilities] Hasil akhir:", {
+          facilities: facilityList,
+          facilityCount: facilityList.length,
+          selectedIds: existingIds,
+        });
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Terjadi kesalahan."
-        );
+        console.error("[ManageFacilities] Error:", err);
+
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Terjadi kesalahan saat mengambil data."
+          );
+        }
       } finally {
-        setLoadingData(false);
+        if (!cancelled) {
+          setLoadingData(false);
+        }
       }
     }
 
     loadData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, user, loading, router]);
 
   function toggleFacility(facilityId: number) {
@@ -112,6 +195,8 @@ export default function ManageFacilitiesPage() {
 
       const result = await response.json();
 
+      console.log("[ManageFacilities] Save response:", result);
+
       if (!response.ok || result.status !== "success") {
         throw new Error(
           result.error?.message || "Gagal menyimpan fasilitas."
@@ -120,8 +205,12 @@ export default function ManageFacilitiesPage() {
 
       setSuccess("Fasilitas kost berhasil disimpan!");
     } catch (err) {
+      console.error("[ManageFacilities] Save error:", err);
+
       setError(
-        err instanceof Error ? err.message : "Terjadi kesalahan."
+        err instanceof Error
+          ? err.message
+          : "Terjadi kesalahan saat menyimpan."
       );
     } finally {
       setSaving(false);
@@ -129,7 +218,11 @@ export default function ManageFacilitiesPage() {
   }
 
   if (loading || loadingData) {
-    return <div className="owner-dashboard">Memuat fasilitas...</div>;
+    return (
+      <div className="owner-dashboard">
+        Memuat fasilitas...
+      </div>
+    );
   }
 
   return (
@@ -146,7 +239,7 @@ export default function ManageFacilitiesPage() {
         <h1>Kelola Fasilitas Kost</h1>
         <p>
           Pilih fasilitas yang tersedia di{" "}
-          <strong>{kostName}</strong>.
+          <strong>{kostName || "Kost kamu"}</strong>.
         </p>
       </div>
 
@@ -157,11 +250,15 @@ export default function ManageFacilitiesPage() {
         </div>
 
         {error && (
-          <div className="create-form-error">{error}</div>
+          <div className="create-form-error">
+            {error}
+          </div>
         )}
 
         {success && (
-          <p className="kost-image-success">{success}</p>
+          <p className="kost-image-success">
+            {success}
+          </p>
         )}
 
         {facilities.length === 0 ? (
@@ -203,7 +300,7 @@ export default function ManageFacilitiesPage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || facilities.length === 0}
             className="create-submit-button"
           >
             <Save size={18} />
