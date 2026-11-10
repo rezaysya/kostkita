@@ -27,9 +27,23 @@ func main() {
 	}
 	defer pool.Close()
 	app := &api.API{DB: pool, Secret: []byte(cfg.JWTSecret), TokenHours: cfg.TokenHours}
-	srv := &http.Server{Addr: ":" + cfg.AppPort, Handler: app.Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = cfg.AppPort
+	}
+
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           app.Router(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
 	go func() {
-		log.Printf("KostKita API listening on http://localhost%s", srv.Addr)
+		log.Printf("KostKita API listening on port %s", port)
 		if e := srv.ListenAndServe(); e != nil && e != http.ErrServerClosed {
 			log.Fatal(e)
 		}
