@@ -1,0 +1,56 @@
+
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
+export async function DELETE(
+  _request: Request,
+  context: RouteContext
+) {
+  try {
+    const { id } = await context.params;
+    const cookieStore = await cookies();
+    const token = cookieStore.get("access_token")?.value;
+
+    if (!token) {
+      return NextResponse.json(
+        { status: 401, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const apiUrl = process.env.API_URL;
+
+    if (!apiUrl) {
+      return NextResponse.json(
+        { status: 500, error: "API_URL belum dikonfigurasi" },
+        { status: 500 }
+      );
+    }
+
+    const response = await fetch(`${apiUrl}/admin/kosts/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    });
+
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+
+    return NextResponse.json(data, {
+      status: response.status,
+    });
+  } catch (error) {
+    console.error("DELETE /api/admin/kosts/[id] error:", error);
+
+    return NextResponse.json(
+      { status: 500, error: "Gagal menghapus kost" },
+      { status: 500 }
+    );
+  }
+}
